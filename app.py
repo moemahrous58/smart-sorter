@@ -31,62 +31,56 @@ def connect_to_sheets():
         st.error(f"❌ فشل الاتصال بـ Google Sheets: {e}")
         return None
 
-# 4. إعداد Gemini (الإصدار المتوافق مع مكتبة 0.8.2)
+# 4. إعداد Gemini (التعديل المطلوب لضمان التوافق)
 genai.configure(api_key=GEMINI_API_KEY)
-# استخدام flash-1.5 لسرعته ودقته في الصور
 model = genai.GenerativeModel('gemini-1.5-flash')
 
 # 5. واجهة التطبيق - حل مشكلة إغلاق الموبايل
 st.markdown("""
-<div style="background-color:#f0f2f6;padding:10px;border-radius:10px;margin-bottom:20px;">
-    💡 <b>نصيحة للموبايل:</b> إذا كان المتصفح يغلق عند التصوير، قم بالتقاط الصورة بكاميرا الهاتف العادية أولاً، ثم اختر "Upload" وارفعها من الاستوديو.
+<div style="background-color:#f0f2f6;padding:15px;border-radius:10px;margin-bottom:20px;border-right: 5px solid #ff4b4b;">
+    💡 <b>ملاحظة هامة:</b> لتجنب إغلاق المتصفح، التقط الصورة بكاميرا الهاتف أولاً، ثم ارفعها هنا.
 </div>
 """, unsafe_allow_html=True)
 
-# استخدام file_uploader بدلاً من camera_input لاستقرار الموبايل
-img_file = st.file_uploader("التقط صورة للقطعة أو اخترها من الاستوديو", type=['jpg', 'jpeg', 'png'])
+img_file = st.file_uploader("اختر صورة للقطعة من الاستوديو", type=['jpg', 'jpeg', 'png'])
 
 if img_file:
     img = Image.open(img_file)
     st.image(img, caption="الصورة التي سيتم تحليلها", use_container_width=True)
     
     if st.button("🚀 بدء التحليل وحفظ البيانات", type="primary"):
-        with st.spinner("جاري تحليل الصورة بواسطة الذكاء الاصطناعي..."):
+        with st.spinner("جاري التواصل مع الذكاء الاصطناعي..."):
             try:
                 # طلب التحليل من Gemini
                 prompt = """Analyze this electronic component. 
-                Return exactly in this format: Name | Category | Condition
-                Example: Intel Core i7 CPU | Processor | Used"""
+                Return exactly in this format: Name | Category | Condition"""
                 
                 response = model.generate_content([prompt, img])
                 result = response.text.strip()
-                
-                # عرض النتيجة للمستخدم
-                st.success("✅ اكتمل التحليل!")
                 
                 # 6. توزيع البيانات وحفظها في Google Sheets
                 sheet = connect_to_sheets()
                 if sheet:
                     timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                    # تقسيم النص الناتج
                     parts = [p.strip() for p in result.split("|")]
-                    # التأكد من وجود 3 أعمدة (الاسم، الفئة، الحالة)
+                    
+                    # ملء البيانات الناقصة لضمان عدم حدوث خطأ في الأعمدة
                     while len(parts) < 3: parts.append("غير محدد")
                     
                     row_to_add = [timestamp] + parts[:3]
                     sheet.append_row(row_to_add)
                     
-                    st.info(f"💾 تم حفظ البيانات بنجاح في ملف 'E-Waste Database'")
+                    st.success("✅ تم التحليل بنجاح وتم تسجيل البيانات!")
                     
-                    # عرض البيانات المضافة في جدول بسيط
+                    # عرض البيانات المضافة في جدول
                     df_display = pd.DataFrame([parts[:3]], columns=["الاسم", "الفئة", "الحالة"])
                     st.table(df_display)
 
             except Exception as e:
                 st.error(f"❌ حدث خطأ أثناء المعالجة: {str(e)}")
                 if "404" in str(e):
-                    st.warning("تلميح: تأكد أنك تستخدم مكتبة google-generativeai الإصدار 0.8.2 فأحدث.")
+                    st.info("تلميح: تأكد من تحديث ملف requirements.txt إلى google-generativeai==0.8.3")
 
 # تذييل الصفحة
 st.markdown("---")
-st.caption("نظام إدارة المخلفات الإلكترونية - جميع الحقوق محفوظة")
+st.caption("نظام فرز المخلفات الإلكترونية v2.0 | 2025")
