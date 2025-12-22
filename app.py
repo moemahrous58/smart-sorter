@@ -8,116 +8,121 @@ import json
 import os
 
 # 1. إعداد الصفحة
-st.set_page_config(page_title="AI E-Waste Sorter", layout="centered", page_icon="♻️")
+st.set_page_config(page_title="AI E-Waste Sorter v3", layout="centered", page_icon="♻️")
 
-# --- دالة إعداد الموديل ---
+# --- 2. دالة الاتصال بـ Google Sheets ---
+def save_to_sheets(data):
+    try:
+        # جلب الاعتمادات من Secrets
+        google_info = st.secrets["google_sheets"]
+        scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
+        
+        # تصحيح الـ Private Key في حال وجود مشاكل في التنسيق
+        creds_dict = dict(google_info)
+        creds_dict["private_key"] = creds_dict["private_key"].replace("\\n", "\n")
+        
+        creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
+        client = gspread.authorize(creds)
+        
+        # فتح الملف (تأكد أن الاسم مطابق تماماً في حسابك)
+        sheet = client.open("E-Waste Database").sheet1
+        
+        # تجهيز السطر للحفظ
+        timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        row = [
+            timestamp, 
+            data.get('model', 'Unknown'), 
+            data.get('type', 'Unknown'), 
+            data.get('gold_mg', 0), 
+            data.get('value_usd', 0)
+        ]
+        
+        sheet.append_row(row)
+        return True
+    except Exception as e:
+        st.error(f"❌ خطأ في الاتصال بـ Google Sheets: {e}")
+        return False
+
+# --- 3. دالة إعداد الموديل ---
 def configure_gemini(api_key):
     try:
         genai.configure(api_key=api_key)
-        # استخدام الموديل الأحدث والأسرع (يدعم الصور والنصوص معاً)
+        # استخدام الموديل الأحدث لحل مشكلة 404
         return genai.GenerativeModel('gemini-1.5-flash')
     except Exception as e:
         return None
 
-# --- دالة الربط مع Google Sheets ---
-def save_to_sheets(data):
-    try:
-        # التأكد من وجود البيانات السرية في Secrets
-        google_info = st.secrets["google_sheets"]
-        scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-        creds = ServiceAccountCredentials.from_json_keyfile_dict(dict(google_info), scope)
-        client = gspread.authorize(creds)
-        
-        # افتح الجدول (تأكد من تسميته E-Waste Database في حسابك)
-        sheet = client.open("E-Waste Database").sheet1
-        
-        timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        row = [timestamp, data.get('model'), data.get('type'), data.get('gold_mg'), data.get('value_usd')]
-        sheet.append_row(row)
-        return True
-    except Exception as e:
-        st.error(f"❌ خطأ في حفظ البيانات في Google Sheets: {e}")
-        return False
-
-# --- الواجهة الرئيسية وإدارة مفتاح API ---
+# --- 4. إدارة مفتاح API ---
 if 'api_key' not in st.session_state:
-    # محاولة جلب المفتاح من Secrets أولاً كافتراضي
     st.session_state.api_key = st.secrets.get("GEMINI_API_KEY", "")
 
-st.title("📸 نظام فرز الخردة الإلكترونية الذكي")
+st.title("♻️ نظام فرز الخردة الإلكترونية الذكي")
 
-# التحقق إذا كان المفتاح يعمل أو يحتاج تحديث
 with st.sidebar:
     st.header("⚙️ الإعدادات")
     new_key = st.text_input("Gemini API Key:", value=st.session_state.api_key, type="password")
     if st.button("تحديث المفتاح"):
         st.session_state.api_key = new_key
-        st.success("تم تحديث المفتاح!")
+        st.rerun()
 
 if not st.session_state.api_key:
-    st.warning("⚠️ يرجى إدخال مفتاح Gemini API في القائمة الجانبية للبدء.")
+    st.warning("⚠️ يرجى إدخال مفتاح Gemini API في القائمة الجانبية.")
     st.stop()
 
 model = configure_gemini(st.session_state.api_key)
 
-# --- رفع أو التقاط الصورة ---
-option = st.radio("اختر طريقة إدخال الصورة:", ("كاميرا الموبايل", "رفع صورة من الاستوديو"))
+# --- 5. واجهة المستخدم (الصور) ---
+upload_option = st.radio("مصدر الصورة:", ("رفع من الاستوديو", "التقاط بالكاميرا"))
 
-if option == "كاميرا الموبايل":
-    img_file = st.camera_input("التقط صورة للقطعة")
+if upload_option == "التقاط بالكاميرا":
+    img_file = st.camera_input("صوّر القطعة")
 else:
     img_file = st.file_uploader("اختر صورة", type=['jpg', 'jpeg', 'png'])
 
 if img_file:
     img = Image.open(img_file)
-    st.image(img, caption="🖼️ الصورة الجاري تحليلها", use_container_width=True)
+    st.image(img, caption="الصورة الجاري معالجتها", use_container_width=True)
     
-    if st.button("🚀 بدء التحليل وحفظ البيانات", type="primary", use_container_width=True):
-        with st.spinner("⏳ جاري التعرف على القطعة وتقدير القيمة..."):
+    if st.button("🚀 تحليل وحفظ في قاعدة البيانات", type="primary", use_container_width=True):
+        with st.spinner("⏳ جاري التعرف والتقدير..."):
             try:
-                # البرومبت الاحترافي لاستخراج JSON
+                # البرومبت لاستخراج JSON دقيق
                 prompt = """
-                Analyze this electronic component. 
-                Identify:
-                1. Exact Model Name.
-                2. Component Type (CPU, RAM, IC, etc.).
-                3. Estimated Gold Content in milligrams (mg) based on recycling standards.
-                4. Estimated scrap value in USD.
-                
-                You MUST respond ONLY with a JSON object like this:
-                {"model": "Intel Pentium Pro", "type": "CPU", "gold_mg": 500, "value_usd": 35.5}
+                Analyze this electronic component image.
+                Return ONLY a JSON object with these keys:
+                {"model": "name", "type": "CPU/RAM", "gold_mg": number, "value_usd": number}
                 """
                 
                 response = model.generate_content([prompt, img])
                 
-                # تنظيف النص المستخرج وتحويله لقاموس Python
-                res_text = response.text.replace('```json', '').replace('```', '').strip()
-                data = json.loads(res_text)
+                # تنظيف الرد
+                raw_json = response.text.replace('```json', '').replace('```', '').strip()
+                data = json.loads(raw_json)
                 
-                # عرض النتائج
-                st.subheader("📊 نتائج التحليل:")
-                col1, col2 = st.columns(2)
-                col1.metric("الموديل", data['model'])
-                col1.metric("النوع", data['type'])
-                col2.metric("كمية الذهب", f"{data['gold_mg']} mg")
-                col2.metric("القيمة التقديرية", f"${data['value_usd']}")
+                # عرض النتائج للمستخدم
+                st.subheader("📊 النتائج المستخرجة:")
+                c1, c2 = st.columns(2)
+                c1.metric("الموديل", data['model'])
+                c1.metric("النوع", data['type'])
+                c2.metric("ذهب (mg)", data['gold_mg'])
+                c2.metric("القيمة ($)", data['value_usd'])
                 
-                # حفظ في Google Sheets
-                if save_to_sheets(data):
-                    st.success("✅ تم حفظ البيانات في السحابة بنجاح!")
+                # --- تفعيل دالة الحفظ (بدون تعليق) ---
+                success = save_to_sheets(data)
+                
+                if success:
+                    st.success("✅ تم التعرف وحفظ البيانات في Google Sheets بنجاح!")
                     st.balloons()
-                    
+                
             except Exception as e:
                 error_str = str(e)
                 if "429" in error_str or "quota" in error_str.lower():
-                    st.error("❌ انتهت الحصة المسموحة (Quota) لهذا المفتاح. يرجى إدخال مفتاح API جديد في القائمة الجانبية.")
-                    # تصفير المفتاح لطلب واحد جديد
-                    st.session_state.api_key = ""
+                    st.error("⚠️ انتهت حصة المفتاح (Quota). أدخل مفتاحاً جديداً في الجانب.")
                 elif "404" in error_str:
-                    st.error("❌ الموديل المستخدم غير مدعوم حالياً. تأكد من استخدام موديل gemini-1.5-flash.")
+                    st.error("❌ خطأ 404: تأكد من تحديث ملف requirements.txt إلى google-generativeai>=0.8.3")
                 else:
-                    st.error(f"حدث خطأ أثناء التحليل: {e}")
+                    st.error(f"حدث خطأ: {e}")
 
 # Footer
 st.markdown("---")
-st.caption("Powered by Gemini 1.5 Flash AI | Connected to Google Sheets")
+st.caption("نظام فرز ذكي متصل بالسحابة | v3.0 Final")
