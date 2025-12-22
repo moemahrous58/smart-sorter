@@ -5,60 +5,59 @@ import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 import datetime
 
-# 1. إعداد الصفحة
-st.set_page_config(page_title="نظام الفرز الذكي", layout="centered")
-st.title("📸 نظام فرز المخلفات الإلكترونية")
+# إعداد الصفحة
+st.set_page_config(page_title="نظام فرز E-Waste", layout="centered")
+st.title("📸 نظام فرز المخلفات الإلكترونية الذكي")
 
-# 2. جلب الإعدادات من Secrets
+# جلب الإعدادات من Secrets
 try:
     GEMINI_API_KEY = st.secrets["GEMINI_API_KEY"]
     google_info = st.secrets["google_sheets"]
 except Exception as e:
-    st.error("خطأ في قراءة الإعدادات السرية (Secrets). تأكد من إضافتها في Streamlit.")
+    st.error("خطأ في قراءة Secrets. تأكد من إضافتها في Streamlit Cloud.")
     st.stop()
 
-# 3. إعداد Google Sheets
+# إعداد Google Sheets بالاسم المطلوب
 def connect_to_sheets():
     scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
     creds = ServiceAccountCredentials.from_json_keyfile_dict(dict(google_info), scope)
     client = gspread.authorize(creds)
-    # اسم الملف الذي حددته
+    # استخدام اسم الملف الخاص بك
     return client.open("E-Waste Database").sheet1
 
-# 4. إعداد Gemini (تم تحديث اسم النموذج وطريقة الاستدعاء لحل خطأ 404)
+# إعداد Gemini
 genai.configure(api_key=GEMINI_API_KEY)
-# استخدمنا gemini-1.5-flash كنموذج افتراضي مع معالجة الأخطاء
 model = genai.GenerativeModel('gemini-1.5-flash')
 
-# 5. واجهة التطبيق
+# واجهة التطبيق
 img_file = st.camera_input("التقط صورة للقطعة الإلكترونية")
 
 if img_file:
     img = Image.open(img_file)
-    st.image(img, caption="الصورة التي تم التقاطها", use_container_width=True)
+    st.image(img, caption="الصورة الملتقطة", use_container_width=True)
     
     if st.button("بدء التحليل بالذكاء الاصطناعي 🔍"):
-        with st.spinner("جاري التحليل..."):
+        with st.spinner("جاري التحليل وحفظ البيانات..."):
             try:
-                # طلب التحليل من Gemini
-                prompt = "Identify this electronic component. Return only: Name, Category, Condition (New/Used). Format: Name | Category | Condition"
+                # طلب التحليل
+                prompt = "Identify this electronic component. Return exactly: Name | Category | Condition"
                 response = model.generate_content([prompt, img])
-                result = response.text
+                result_text = response.text
                 
-                st.success("تم التحليل بنجاح!")
-                st.write(f"النتيجة: {result}")
-                
-                # 6. حفظ البيانات في Google Sheets
+                # حفظ في Google Sheets
                 sheet = connect_to_sheets()
-                now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                 
-                # تقسيم النتيجة وحفظها
-                data_row = result.split("|")
-                row_to_add = [now] + [item.strip() for item in data_row]
+                # ترتيب البيانات
+                parts = [p.strip() for p in result_text.split("|")]
+                row = [timestamp] + parts
                 
-                sheet.append_row(row_to_add)
-                st.info(f"تم تسجيل البيانات في ملف 'E-Waste Database' بنجاح ✅")
+                sheet.append_row(row)
+                
+                st.success(f"تم التحليل والحفظ بنجاح! ✅")
+                st.write(f"النتيجة: {result_text}")
                 
             except Exception as e:
                 st.error(f"حدث خطأ: {str(e)}")
-                st.info("نصيحة: تأكد من تحديث مكتبة google-generativeai في ملف requirements.txt")
+                if "404" in str(e):
+                    st.warning("تلميح: يرجى تحديث مكتبة google-generativeai في ملف requirements.txt")
