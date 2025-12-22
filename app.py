@@ -4,65 +4,89 @@ from PIL import Image
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 import datetime
+import pandas as pd
 
-# إعداد الصفحة
-st.set_page_config(page_title="E-Waste Smart Sorter", layout="centered")
-st.title("📸 نظام فرز المخلفات الإلكترونية")
+# 1. إعداد الصفحة وتنسيقها
+st.set_page_config(page_title="E-Waste Smart Sorter", layout="centered", page_icon="♻️")
+st.title("📸 نظام فرز المخلفات الإلكترونية الذكي")
 
-# جلب الإعدادات من Secrets
+# 2. جلب الإعدادات من Secrets
 try:
     GEMINI_API_KEY = st.secrets["GEMINI_API_KEY"]
     google_info = st.secrets["google_sheets"]
 except Exception as e:
-    st.error("⚠️ تأكد من ضبط الإعدادات السرية (Secrets) في Streamlit Cloud")
+    st.error("⚠️ خطأ: لم يتم العثور على الإعدادات السرية (Secrets). تأكد من إضافتها في Streamlit Cloud.")
     st.stop()
 
-# إعداد Google Sheets (تم تثبيت اسم الملف)
+# 3. إعداد Google Sheets مع التخزين المؤقت (Caching)
 @st.cache_resource
 def connect_to_sheets():
     try:
         scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
         creds = ServiceAccountCredentials.from_json_keyfile_dict(dict(google_info), scope)
         client = gspread.authorize(creds)
-        # فتح الملف بالاسم الذي حددته
-        sheet = client.open("E-Waste Database").sheet1
-        return sheet
+        # فتح ملف "E-Waste Database"
+        return client.open("E-Waste Database").sheet1
     except Exception as e:
-        st.error(f"❌ فشل الاتصال بجدول البيانات: {e}")
+        st.error(f"❌ فشل الاتصال بـ Google Sheets: {e}")
         return None
 
-# إعداد Gemini
+# 4. إعداد Gemini (الإصدار المتوافق مع مكتبة 0.8.2)
 genai.configure(api_key=GEMINI_API_KEY)
-# قمنا بتغيير الموديل إلى الإصدار الأكثر استقراراً لتجنب خطأ 404
+# استخدام flash-1.5 لسرعته ودقته في الصور
 model = genai.GenerativeModel('gemini-1.5-flash')
 
-# واجهة التطبيق (تم تغييرها لضمان استقرار الموبايل)
-st.info("💡 نصيحة: إذا انغلق المتصفح، حاول التقاط الصورة بكاميرا الهاتف أولاً ثم اخترها من 'المعرض'.")
-img_file = st.file_uploader("التقط صورة للقطعة أو اخترها من المعرض", type=['jpg', 'jpeg', 'png'])
+# 5. واجهة التطبيق - حل مشكلة إغلاق الموبايل
+st.markdown("""
+<div style="background-color:#f0f2f6;padding:10px;border-radius:10px;margin-bottom:20px;">
+    💡 <b>نصيحة للموبايل:</b> إذا كان المتصفح يغلق عند التصوير، قم بالتقاط الصورة بكاميرا الهاتف العادية أولاً، ثم اختر "Upload" وارفعها من الاستوديو.
+</div>
+""", unsafe_allow_html=True)
+
+# استخدام file_uploader بدلاً من camera_input لاستقرار الموبايل
+img_file = st.file_uploader("التقط صورة للقطعة أو اخترها من الاستوديو", type=['jpg', 'jpeg', 'png'])
 
 if img_file:
     img = Image.open(img_file)
-    st.image(img, caption="الصورة المختارة", use_container_width=True)
+    st.image(img, caption="الصورة التي سيتم تحليلها", use_container_width=True)
     
-    if st.button("🚀 بدء التحليل والحفظ", type="primary"):
-        with st.spinner("جاري معالجة الصورة..."):
+    if st.button("🚀 بدء التحليل وحفظ البيانات", type="primary"):
+        with st.spinner("جاري تحليل الصورة بواسطة الذكاء الاصطناعي..."):
             try:
-                # التحليل
-                prompt = "Identify this electronic waste. Format: Name | Category | Condition"
+                # طلب التحليل من Gemini
+                prompt = """Analyze this electronic component. 
+                Return exactly in this format: Name | Category | Condition
+                Example: Intel Core i7 CPU | Processor | Used"""
+                
                 response = model.generate_content([prompt, img])
                 result = response.text.strip()
                 
-                # الحفظ في الشيت
+                # عرض النتيجة للمستخدم
+                st.success("✅ اكتمل التحليل!")
+                
+                # 6. توزيع البيانات وحفظها في Google Sheets
                 sheet = connect_to_sheets()
                 if sheet:
                     timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    # تقسيم النص الناتج
                     parts = [p.strip() for p in result.split("|")]
-                    # التأكد من ملء البيانات
-                    while len(parts) < 3: parts.append("N/A")
+                    # التأكد من وجود 3 أعمدة (الاسم، الفئة، الحالة)
+                    while len(parts) < 3: parts.append("غير محدد")
                     
-                    sheet.append_row([timestamp] + parts[:3])
+                    row_to_add = [timestamp] + parts[:3]
+                    sheet.append_row(row_to_add)
                     
-                    st.success("✅ تم التحليل وحفظ البيانات في 'E-Waste Database'")
-                    st.markdown(f"**النتيجة المستخرجة:** `{result}`")
+                    st.info(f"💾 تم حفظ البيانات بنجاح في ملف 'E-Waste Database'")
+                    
+                    # عرض البيانات المضافة في جدول بسيط
+                    df_display = pd.DataFrame([parts[:3]], columns=["الاسم", "الفئة", "الحالة"])
+                    st.table(df_display)
+
             except Exception as e:
-                st.error(f"حدث خطأ أثناء المعالجة: {e}")
+                st.error(f"❌ حدث خطأ أثناء المعالجة: {str(e)}")
+                if "404" in str(e):
+                    st.warning("تلميح: تأكد أنك تستخدم مكتبة google-generativeai الإصدار 0.8.2 فأحدث.")
+
+# تذييل الصفحة
+st.markdown("---")
+st.caption("نظام إدارة المخلفات الإلكترونية - جميع الحقوق محفوظة")
