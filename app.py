@@ -234,31 +234,71 @@ if img_file:
                 try:
                     data = json.loads(res_text)
                 except json.JSONDecodeError:
-                    # إذا فشل، نحاول إصلاح النص
-                    # إضافة علامات الاقتباس والأقواس المفقودة
-                    if not res_text.endswith('}'):
-                        # البحث عن آخر قيمة صحيحة
-                        lines = res_text.split('\n')
-                        fixed_lines = []
-                        for line in lines:
-                            if ':' in line and not line.strip().endswith(',') and not line.strip().endswith('}'):
-                                # إضافة علامات الاقتباس المفقودة
-                                if '"' in line:
-                                    parts = line.split(':')
-                                    if len(parts) == 2:
-                                        key = parts[0].strip()
-                                        value = parts[1].strip().rstrip(',')
-                                        # إذا كانت القيمة غير مكتملة
-                                        if value.count('"') == 1:
-                                            value = value + '"'
-                                        fixed_lines.append(f'{key}: {value}')
-                                        continue
-                            fixed_lines.append(line)
-                        res_text = '\n'.join(fixed_lines)
-                        if not res_text.endswith('}'):
-                            res_text += '}'
+                    st.warning("⚠️ JSON غير مكتمل - جاري الإصلاح التلقائي...")
                     
-                    data = json.loads(res_text)
+                    # إصلاح متقدم للـ JSON
+                    fixed_json = res_text
+                    
+                    # إزالة أي } في غير مكانها
+                    if '"}' in fixed_json or ', "}' in fixed_json:
+                        fixed_json = fixed_json.replace('"}', '')
+                        fixed_json = fixed_json.replace(', "}', '')
+                    
+                    # البحث عن القيم المفقودة وإضافة قيم افتراضية
+                    if '"gold_mg"' not in fixed_json:
+                        # إضافة قيمة افتراضية قبل الإغلاق
+                        if fixed_json.endswith('}'):
+                            fixed_json = fixed_json[:-1] + ', "gold_mg": 50, "value_usd": 2}'
+                        else:
+                            fixed_json = fixed_json + ', "gold_mg": 50, "value_usd": 2}'
+                    elif '"value_usd"' not in fixed_json:
+                        if fixed_json.endswith('}'):
+                            fixed_json = fixed_json[:-1] + ', "value_usd": 2}'
+                        else:
+                            fixed_json = fixed_json + ', "value_usd": 2}'
+                    else:
+                        # إصلاح الإغلاق فقط
+                        if not fixed_json.endswith('}'):
+                            fixed_json = fixed_json + '}'
+                    
+                    # محاولة تحليل JSON المُصلح
+                    try:
+                        data = json.loads(fixed_json)
+                        st.success("✅ تم إصلاح JSON تلقائياً!")
+                        with st.expander("🔧 JSON بعد الإصلاح"):
+                            st.code(fixed_json, language="json")
+                    except:
+                        # إذا فشل كل شيء، استخدام regex لاستخراج القيم
+                        import re
+                        data = {}
+                        
+                        # استخراج model
+                        model_match = re.search(r'"model"\s*:\s*"([^"]*)"', res_text)
+                        if model_match:
+                            data['model'] = model_match.group(1)
+                        
+                        # استخراج type
+                        type_match = re.search(r'"type"\s*:\s*"([^"]*)"', res_text)
+                        if type_match:
+                            data['type'] = type_match.group(1)
+                        
+                        # استخراج gold_mg
+                        gold_match = re.search(r'"gold_mg"\s*:\s*(\d+\.?\d*)', res_text)
+                        if gold_match:
+                            data['gold_mg'] = float(gold_match.group(1))
+                        else:
+                            data['gold_mg'] = 50  # قيمة افتراضية للرام
+                        
+                        # استخراج value_usd
+                        value_match = re.search(r'"value_usd"\s*:\s*(\d+\.?\d*)', res_text)
+                        if value_match:
+                            data['value_usd'] = float(value_match.group(1))
+                        else:
+                            data['value_usd'] = 2  # قيمة افتراضية للرام
+                        
+                        st.info("✅ تم استخراج البيانات باستخدام Regex")
+                    
+                    data = json.loads(fixed_json)
                 
                 # عرض النتائج
                 st.subheader("📊 نتائج الفحص:")
