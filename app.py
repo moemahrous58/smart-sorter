@@ -238,16 +238,16 @@ with st.expander("🧪 اختبار اتصال Google Sheets", expanded=False):
             st.error(f"❌ فشل الاختبار: {error_msg}")
             
             if "permission" in error_msg.lower() or "403" in error_msg:
-                st.warning(f"""
-                💡 **حل المشكلة:**
+                st.warning("💡 حل المشكلة:")
+                st.markdown(f"""
                 1. افتح ملف **E-Waste Database** في Google Sheets
                 2. اضغط على زر **مشاركة** (Share)
                 3. أضف هذا الإيميل: `{google_info['client_email']}`
                 4. أعطه صلاحية **Editor**
                 """)
             elif "not found" in error_msg.lower():
-                st.warning("""
-                💡 **حل المشكلة:**
+                st.warning("💡 حل المشكلة:")
+                st.markdown("""
                 - أنشئ ملف جديد في Google Sheets
                 - سمّه بالضبط: **E-Waste Database**
                 - شاركه مع الـ service account أعلاه
