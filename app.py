@@ -42,11 +42,12 @@ def get_working_ai_engine():
         "AIzaSyA-gnMmgKg_0k4BpnvJ7K252Y5lRnfY7Sk"
     ]
     
-    # موديلات متعددة للتجربة
+    # أسماء الموديلات الصحيحة (بدون البادئة models/)
     model_names = [
-        'gemini-1.5-flash',
         'gemini-1.5-flash-latest',
-        'gemini-pro-vision',
+        'gemini-1.5-pro-latest',
+        'gemini-pro',
+        'gemini-1.5-flash',
         'gemini-1.5-pro'
     ]
     
@@ -61,27 +62,45 @@ def get_working_ai_engine():
         
         errors_log.append(f"   طول المفتاح: {len(key)} حرف ✓")
         
+        # أولاً: محاولة سرد الموديلات المتاحة
+        try:
+            genai.configure(api_key=key)
+            available_models = genai.list_models()
+            model_list = [m.name for m in available_models if 'generateContent' in m.supported_generation_methods]
+            errors_log.append(f"   📋 الموديلات المتاحة: {len(model_list)} موديل")
+            errors_log.append(f"   📝 أول 3 موديلات: {model_list[:3]}")
+            
+            # استخدام أول موديل متاح
+            if model_list:
+                best_model_name = model_list[0]
+                errors_log.append(f"   جاري تجربة أفضل موديل متاح: {best_model_name}...")
+                
+                model = genai.GenerativeModel(best_model_name)
+                response = model.generate_content(
+                    "Say hi",
+                    generation_config={"max_output_tokens": 10, "temperature": 0.1}
+                )
+                
+                errors_log.append(f"      ✅✅✅ نجح الاتصال! الموديل: {best_model_name}")
+                return model, best_model_name, i+1, errors_log
+        except Exception as list_error:
+            errors_log.append(f"   ⚠️ فشل سرد الموديلات: {str(list_error)[:100]}")
+        
+        # ثانياً: تجربة الموديلات من القائمة
         for m_name in model_names:
             errors_log.append(f"   جاري تجربة الموديل: {m_name}...")
             try:
-                # إعداد المفتاح
                 genai.configure(api_key=key)
                 errors_log.append(f"      ✓ تم إعداد المفتاح")
                 
-                # إنشاء الموديل
                 model = genai.GenerativeModel(m_name)
                 errors_log.append(f"      ✓ تم إنشاء كائن الموديل")
                 
-                # اختبار بسيط جدًا
                 response = model.generate_content(
                     "Say hi",
-                    generation_config={
-                        "max_output_tokens": 10,
-                        "temperature": 0.1
-                    }
+                    generation_config={"max_output_tokens": 10, "temperature": 0.1}
                 )
                 
-                # إذا وصلنا هنا، فالاتصال نجح!
                 errors_log.append(f"      ✅✅✅ نجح الاتصال! الرد: {response.text[:30]}")
                 return model, m_name, i+1, errors_log
                 
@@ -90,7 +109,6 @@ def get_working_ai_engine():
                 full_error = f"      ❌ فشل: {error_msg}"
                 errors_log.append(full_error)
                 
-                # تحليل نوع الخطأ
                 if "429" in error_msg or "quota" in error_msg.lower():
                     errors_log.append(f"      📊 التشخيص: تجاوز الحد المسموح (Quota)")
                 elif "403" in error_msg or "permission" in error_msg.lower() or "disabled" in error_msg.lower():
