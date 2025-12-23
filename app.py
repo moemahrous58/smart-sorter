@@ -188,7 +188,7 @@ else:
     
     st.stop()
 
-# --- 5. منطقة العمل ---
+# --- 5. منطقة العمل المحسّنة v5.3 ---
 st.markdown("### 📤 رفع الصورة للتحليل")
 img_file = st.file_uploader("اختر صورة المعالج أو الرامة", type=['jpg', 'jpeg', 'png'])
 
@@ -199,164 +199,82 @@ if img_file:
     if st.button("🚀 بدء التحليل والحفظ التلقائي", type="primary", use_container_width=True):
         with st.spinner("⏳ جاري تحليل الصورة..."):
             try:
-                prompt = """Analyze this electronic component carefully. 
-                You MUST return a complete and valid JSON object.
-                Identify: model name, type (CPU/RAM/GPU), estimated gold content in mg, and scrap value in USD.
-                
-                Return ONLY this exact JSON format (ensure all strings are properly closed with quotes):
-                {"model": "component_name", "type": "CPU", "gold_mg": 100, "value_usd": 5}
-                
-                Important: 
-                - All text values must be in quotes
-                - All numbers should be without quotes
-                - Ensure the JSON is complete and valid
-                - Do not truncate the response"""
+                # برومبت مختصر ومركز لمنع الانقطاع
+                prompt = """Return ONLY a JSON object for this electronic component.
+                Required fields: {"model": "string", "type": "CPU/RAM/GPU", "gold_mg": number, "value_usd": number}
+                Do not include any text before or after the JSON."""
                 
                 response = st.session_state.active_engine.generate_content(
                     [prompt, img],
                     generation_config={
-                        "temperature": 0.1,
-                        "max_output_tokens": 1000
+                        "temperature": 0,  # منع الإبداع لضمان استقرار JSON
+                        "max_output_tokens": 1000,  # مساحة كافية
+                        "top_p": 1,  # حتمية كاملة
+                        "top_k": 1   # اختيار الأعلى احتمالاً فقط
                     }
                 )
                 
-                # تنظيف النص
                 res_text = response.text.strip()
+                # تنظيف الرد من علامات Markdown
                 res_text = res_text.replace('```json', '').replace('```', '').replace('`', '').strip()
                 
-                # محاولة استخراج JSON
+                # استخراج JSON إذا كان محاطاً بنص
                 if '{' in res_text and '}' in res_text:
                     start = res_text.index('{')
                     end = res_text.rindex('}') + 1
                     res_text = res_text[start:end]
                 
-                # محاولة إصلاح JSON غير المكتمل
+                # محاولة التحليل المباشر
                 try:
                     data = json.loads(res_text)
-                except json.JSONDecodeError:
-                    st.warning("⚠️ JSON غير مكتمل - جاري الإصلاح التلقائي...")
+                    st.success("✅ تم تحليل JSON بنجاح")
                     
-                    # إصلاح متقدم للـ JSON
-                    fixed_json = res_text
+                except json.JSONDecodeError as je:
+                    # خطة الإنقاذ: استخدام Regex
+                    import re
+                    st.warning("⚠️ JSON غير مكتمل - جاري استخراج البيانات بـ Regex...")
                     
-                    # إزالة أي } في غير مكانها
-                    if '"}' in fixed_json or ', "}' in fixed_json:
-                        fixed_json = fixed_json.replace('"}', '')
-                        fixed_json = fixed_json.replace(', "}', '')
+                    data = {}
+                    # استخراج القيم حتى لو انقطع النص
+                    m = re.search(r'"model"\s*:\s*"([^"]*)"?', res_text)
+                    t = re.search(r'"type"\s*:\s*"([^"]*)"?', res_text)
+                    g = re.search(r'"gold_mg"\s*:\s*(\d+\.?\d*)', res_text)
+                    v = re.search(r'"value_usd"\s*:\s*(\d+\.?\d*)', res_text)
                     
-                    # البحث عن القيم المفقودة وإضافة قيم افتراضية
-                    if '"gold_mg"' not in fixed_json:
-                        # إضافة قيمة افتراضية قبل الإغلاق
-                        if fixed_json.endswith('}'):
-                            fixed_json = fixed_json[:-1] + ', "gold_mg": 50, "value_usd": 2}'
-                        else:
-                            fixed_json = fixed_json + ', "gold_mg": 50, "value_usd": 2}'
-                    elif '"value_usd"' not in fixed_json:
-                        if fixed_json.endswith('}'):
-                            fixed_json = fixed_json[:-1] + ', "value_usd": 2}'
-                        else:
-                            fixed_json = fixed_json + ', "value_usd": 2}'
-                    else:
-                        # إصلاح الإغلاق فقط
-                        if not fixed_json.endswith('}'):
-                            fixed_json = fixed_json + '}'
+                    data['model'] = m.group(1) if m else "Unknown"
+                    data['type'] = t.group(1) if t else "Unknown"
+                    data['gold_mg'] = float(g.group(1)) if g else 0.0
+                    data['value_usd'] = float(v.group(1)) if v else 0.0
                     
-                    # محاولة تحليل JSON المُصلح
-                    try:
-                        data = json.loads(fixed_json)
-                        st.success("✅ تم إصلاح JSON تلقائياً!")
-                        with st.expander("🔧 JSON بعد الإصلاح"):
-                            st.code(fixed_json, language="json")
-                    except:
-                        # إذا فشل كل شيء، استخدام regex لاستخراج القيم
-                        import re
-                        data = {}
-                        
-                        # استخراج model
-                        model_match = re.search(r'"model"\s*:\s*"([^"]*)"', res_text)
-                        if model_match:
-                            data['model'] = model_match.group(1)
-                        
-                        # استخراج type
-                        type_match = re.search(r'"type"\s*:\s*"([^"]*)"', res_text)
-                        if type_match:
-                            data['type'] = type_match.group(1)
-                        
-                        # استخراج gold_mg
-                        gold_match = re.search(r'"gold_mg"\s*:\s*(\d+\.?\d*)', res_text)
-                        if gold_match:
-                            data['gold_mg'] = float(gold_match.group(1))
-                        else:
-                            data['gold_mg'] = 50  # قيمة افتراضية للرام
-                        
-                        # استخراج value_usd
-                        value_match = re.search(r'"value_usd"\s*:\s*(\d+\.?\d*)', res_text)
-                        if value_match:
-                            data['value_usd'] = float(value_match.group(1))
-                        else:
-                            data['value_usd'] = 2  # قيمة افتراضية للرام
-                        
-                        st.info("✅ تم استخراج البيانات باستخدام Regex")
-                    
-                    data = json.loads(fixed_json)
+                    st.info("✅ تم استخراج البيانات المتاحة")
+                
+                # التأكد من وجود جميع الحقول
+                data.setdefault('model', 'Unknown')
+                data.setdefault('type', 'Unknown')
+                data.setdefault('gold_mg', 0.0)
+                data.setdefault('value_usd', 0.0)
                 
                 # عرض النتائج
-                st.subheader("📊 نتائج الفحص:")
-                
-                # التأكد من وجود القيم الأساسية
-                model = data.get('model', 'غير معروف')
-                comp_type = data.get('type', 'غير معروف')
-                gold_mg = data.get('gold_mg', 0)
-                value_usd = data.get('value_usd', 0)
-                
-                # تحويل القيم الرقمية إذا كانت نصوص
-                try:
-                    gold_mg = float(gold_mg) if gold_mg else 0
-                except:
-                    gold_mg = 0
-                
-                try:
-                    value_usd = float(value_usd) if value_usd else 0
-                except:
-                    value_usd = 0
-                
+                st.subheader("📊 نتائج التحليل:")
                 col1, col2 = st.columns(2)
-                col1.metric("الموديل", model)
-                col1.metric("النوع", comp_type)
-                col2.metric("كمية الذهب", f"{gold_mg} mg")
-                col2.metric("القيمة ($)", f"${value_usd}")
+                col1.metric("🔹 الموديل", data['model'])
+                col1.metric("🔹 النوع", data['type'])
+                col2.metric("🔸 كمية الذهب", f"{data['gold_mg']} mg")
+                col2.metric("🔸 القيمة التقديرية", f"${data['value_usd']}")
                 
-                # عرض الاستجابة الخام للتشخيص
+                # عرض الرد الخام للتشخيص
                 with st.expander("🔍 عرض الاستجابة الخام (للتشخيص)"):
                     st.code(response.text, language="json")
                 
-                # الحفظ
-                save_data = {
-                    'model': model,
-                    'type': comp_type,
-                    'gold_mg': gold_mg,
-                    'value_usd': value_usd
-                }
-                
-                if save_to_sheets(save_data):
-                    st.success("✅ تم الحفظ في قاعدة البيانات بنجاح!")
+                # الحفظ التلقائي
+                if save_to_sheets(data):
+                    st.success("✅ تم التحليل والحفظ في قاعدة البيانات بنجاح!")
                     st.balloons()
-                    
-            except json.JSONDecodeError as je:
-                st.error(f"⚠️ خطأ في تحليل JSON: {je}")
-                st.warning("💡 الحل: جاري إعادة المحاولة بإعدادات محسّنة...")
-                
-                # عرض النص الخام
-                with st.expander("📝 الاستجابة الخام من AI"):
-                    st.code(res_text, language="text")
-                
-                # محاولة ثانية بقيم افتراضية
-                st.info("🔄 يمكنك المحاولة مرة أخرى أو إدخال البيانات يدوياً")
-                
+
             except Exception as e:
-                st.error(f"❌ خطأ أثناء التحليل: {e}")
-                st.info("💡 جرب رفع صورة أوضح أو التقط زاوية مختلفة")
+                st.error(f"❌ خطأ في معالجة الصورة: {str(e)}")
+                st.info("💡 جرب صورة أوضح أو بزاوية أفضل")
 
 # تذييل
 st.markdown("---")
-st.caption("نظام فرز الخردة الإلكترونية v5.2 | تشخيص محسّن | مدعوم بـ Gemini")
+st.caption("نظام فرز الخردة الإلكترونية v5.3 | مستقر ومحسّن | مدعوم بـ Gemini 1.5 Flash")
