@@ -10,28 +10,93 @@ import time
 # 1. إعداد الصفحة
 st.set_page_config(page_title="Smart Sorter v5.2", layout="centered", page_icon="♻️")
 
-# --- 2. دالة الحفظ في Google Sheets ---
+# --- 2. دالة الحفظ في Google Sheets (محسّنة ومُصلحة) ---
 def save_to_sheets(data):
     try:
+        # قراءة الاعتمادات من Secrets
         google_info = st.secrets["google_sheets"]
         scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-        creds_dict = dict(google_info)
-        creds_dict["private_key"] = creds_dict["private_key"].replace("\\n", "\n")
+        
+        # تحويل إلى قاموس عادي
+        creds_dict = {
+            "type": google_info["type"],
+            "project_id": google_info["project_id"],
+            "private_key_id": google_info["private_key_id"],
+            "private_key": google_info["private_key"],  # استخدام المفتاح كما هو
+            "client_email": google_info["client_email"],
+            "client_id": google_info["client_id"],
+            "auth_uri": google_info["auth_uri"],
+            "token_uri": google_info["token_uri"],
+            "auth_provider_x509_cert_url": google_info["auth_provider_x509_cert_url"],
+            "client_x509_cert_url": google_info["client_x509_cert_url"]
+        }
+        
+        # إضافة universe_domain إذا كان موجوداً
+        if "universe_domain" in google_info:
+            creds_dict["universe_domain"] = google_info["universe_domain"]
+        
+        # إنشاء الاعتمادات مباشرة بدون تعديل على private_key
         creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
         client = gspread.authorize(creds)
+        
+        # فتح الملف
         sheet = client.open("E-Waste Database").sheet1
         
+        # إعداد البيانات للحفظ
         row = [
             datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"), 
-            data.get('model'), 
-            data.get('type'), 
-            data.get('gold_mg'), 
-            data.get('value_usd')
+            str(data.get('model', 'Unknown')),
+            str(data.get('type', 'Unknown')),
+            float(data.get('gold_mg', 0)),
+            float(data.get('value_usd', 0))
         ]
+        
+        # الحفظ
         sheet.append_row(row)
         return True
+        
     except Exception as e:
-        st.error(f"❌ خطأ في حفظ البيانات (Sheets): {e}")
+        error_msg = str(e)
+        st.error(f"❌ خطأ في حفظ البيانات: {error_msg}")
+        
+        # نصائح حسب نوع الخطأ
+        if "base64" in error_msg.lower():
+            st.warning("💡 المشكلة في معالجة المفتاح الخاص")
+            st.info("جاري إعادة المحاولة بطريقة بديلة...")
+            # محاولة بديلة مع معالجة مختلفة للمفتاح
+            try:
+                creds_dict["private_key"] = google_info["private_key"].replace("\\n", "\n")
+                creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
+                client = gspread.authorize(creds)
+                sheet = client.open("E-Waste Database").sheet1
+                row = [
+                    datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"), 
+                    str(data.get('model', 'Unknown')),
+                    str(data.get('type', 'Unknown')),
+                    float(data.get('gold_mg', 0)),
+                    float(data.get('value_usd', 0))
+                ]
+                sheet.append_row(row)
+                st.success("✅ نجحت المحاولة البديلة!")
+                return True
+            except Exception as e2:
+                st.error(f"❌ فشلت المحاولة البديلة أيضاً: {e2}")
+                
+        elif "permission" in error_msg.lower() or "403" in error_msg:
+            st.warning("💡 مشكلة في الصلاحيات:")
+            st.markdown(f"""
+            - شارك الملف مع: `{google_info['client_email']}`
+            - أعطه صلاحية **Editor**
+            - تأكد من تفعيل Google Sheets API في Cloud Console
+            """)
+        elif "not found" in error_msg.lower() or "404" in error_msg:
+            st.warning("💡 الملف غير موجود:")
+            st.markdown("""
+            - تأكد من اسم الملف بالضبط: **E-Waste Database**
+            - تحقق من أن الملف موجود في Google Sheets
+            - تأكد من مشاركته مع service account
+            """)
+        
         return False
 
 # --- 3. محرك التبادل المحسّن مع تشخيص تفصيلي ---
