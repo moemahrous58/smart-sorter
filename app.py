@@ -134,11 +134,21 @@ def get_working_ai_engine():
     
     errors_log = ["بدء فحص المفاتيح..."]
     
+    # تخطي المفاتيح التي فشلت مؤخراً
+    skip_keys = st.session_state.get('failed_keys', set())
+    
     for i, key in enumerate(keys):
-        errors_log.append(f"🔍 فحص المفتاح {i+1}...")
+        key_num = i + 1
+        
+        # تخطي المفاتيح المعروف أنها نفدت
+        if key_num in skip_keys:
+            errors_log.append(f"⏭️ تخطي المفتاح {key_num} (نفد الـ quota مسبقاً)")
+            continue
+        
+        errors_log.append(f"🔍 فحص المفتاح {key_num}...")
         
         if not key or len(key) < 30:
-            errors_log.append(f"🔴 المفتاح {i+1}: غير صالح أو فارغ (طول: {len(key) if key else 0})")
+            errors_log.append(f"🔴 المفتاح {key_num}: غير صالح أو فارغ (طول: {len(key) if key else 0})")
             continue
         
         errors_log.append(f"   طول المفتاح: {len(key)} حرف ✓")
@@ -163,9 +173,18 @@ def get_working_ai_engine():
                 )
                 
                 errors_log.append(f"      ✅✅✅ نجح الاتصال! الموديل: {best_model_name}")
-                return model, best_model_name, i+1, errors_log
+                return model, best_model_name, key_num, errors_log
         except Exception as list_error:
-            errors_log.append(f"   ⚠️ فشل سرد الموديلات: {str(list_error)[:100]}")
+            error_msg = str(list_error)
+            
+            # إذا كان خطأ quota، نضيف المفتاح للقائمة السوداء
+            if "429" in error_msg or "quota" in error_msg.lower():
+                if 'failed_keys' not in st.session_state:
+                    st.session_state.failed_keys = set()
+                st.session_state.failed_keys.add(key_num)
+                errors_log.append(f"   ⏭️ المفتاح {key_num} نفد من الـ quota - سيتم تخطيه")
+            else:
+                errors_log.append(f"   ⚠️ فشل سرد الموديلات: {error_msg[:100]}")
         
         # تجربة الموديلات من القائمة
         for m_name in model_names:
@@ -183,7 +202,7 @@ def get_working_ai_engine():
                 )
                 
                 errors_log.append(f"      ✅✅✅ نجح الاتصال! الرد: {response.text[:30]}")
-                return model, m_name, i+1, errors_log
+                return model, m_name, key_num, errors_log
                 
             except Exception as e:
                 error_msg = str(e)
@@ -192,6 +211,9 @@ def get_working_ai_engine():
                 
                 if "429" in error_msg or "quota" in error_msg.lower():
                     errors_log.append(f"      📊 التشخيص: تجاوز الحد المسموح (Quota)")
+                    if 'failed_keys' not in st.session_state:
+                        st.session_state.failed_keys = set()
+                    st.session_state.failed_keys.add(key_num)
                 elif "403" in error_msg or "permission" in error_msg.lower() or "disabled" in error_msg.lower():
                     errors_log.append(f"      🔒 التشخيص: API غير مفعّل أو الصلاحيات غير كافية")
                 elif "404" in error_msg:
@@ -298,6 +320,19 @@ with st.expander("📋 عرض سجل محاولات الاتصال (للتشخي
 # عرض حالة الاتصال
 if st.session_state.active_engine:
     st.success(f"✅ متصل بنجاح | الحساب النشط: ({st.session_state.account_id}) | الموديل: {st.session_state.engine_name}")
+    
+    # عرض عدد المفاتيح المتبقية
+    total_keys = 3
+    failed_keys = st.session_state.get('failed_keys', set())
+    available_keys = total_keys - len(failed_keys)
+    
+    if len(failed_keys) > 0:
+        st.info(f"📊 المفاتيح المتاحة: {available_keys}/{total_keys} | المفاتيح التي نفدت: {list(failed_keys)}")
+        
+        if st.button("🔄 إعادة تعيين جميع المفاتيح (بعد 24 ساعة)"):
+            st.session_state.failed_keys = set()
+            st.session_state.clear()
+            st.rerun()
 else:
     st.error("❌ فشل الاتصال بجميع الحسابات والموديلات المتاحة")
     
@@ -340,15 +375,48 @@ if img_file:
                 # برومبت محسّن
                 prompt = "Analyze this electronic component. Return JSON with: model, type (CPU/RAM/GPU), gold_mg (estimated gold in milligrams), value_usd (scrap value in USD)"
                 
-                response = st.session_state.active_engine.generate_content(
-                    [prompt, img],
-                    generation_config={
-                        "temperature": 0,
-                        "max_output_tokens": 500,
-                        "top_p": 0.95,
-                        "top_k": 40
-                    }
-                )
+                max_retries = 3
+                response = None
+                
+                for retry in range(max_retries):
+                    try:
+                        response = st.session_state.active_engine.generate_content(
+                            [prompt, img],
+                            generation_config={
+                                "temperature": 0,
+                                "max_output_tokens": 500,
+                                "top_p": 0.95,
+                                "top_k": 40
+                            }
+                        )
+                        break  # نجح الطلب
+                        
+                    except Exception as quota_error:
+                        error_msg = str(quota_error)
+                        
+                        if "429" in error_msg or "quota" in error_msg.lower():
+                            st.warning(f"⚠️ المفتاح الحالي ({st.session_state.account_id}) نفد من الـ quota")
+                            st.info("🔄 جاري التبديل لمفتاح آخر...")
+                            
+                            # إعادة فحص المفاتيح
+                            model, m_name, account_num, logs = get_working_ai_engine()
+                            
+                            if model and account_num != st.session_state.account_id:
+                                st.session_state.active_engine = model
+                                st.session_state.engine_name = m_name
+                                st.session_state.account_id = account_num
+                                st.success(f"✅ تم التبديل للحساب ({account_num})")
+                                time.sleep(1)
+                                continue  # إعادة المحاولة
+                            else:
+                                st.error("❌ جميع المفاتيح نفدت من الـ quota")
+                                st.info("💡 انتظر حتى يتم تجديد الحد اليومي (عادة بعد 24 ساعة)")
+                                raise quota_error
+                        else:
+                            raise quota_error
+                
+                if not response:
+                    raise Exception("فشل الحصول على رد من AI بعد عدة محاولات")
                 
                 # عرض الرد الخام أولاً
                 raw_response = response.text.strip()
