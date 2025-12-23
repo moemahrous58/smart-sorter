@@ -37,7 +37,7 @@ def save_to_sheets(data):
 # --- 3. محرك التبادل المحسّن مع تشخيص تفصيلي ---
 def get_working_ai_engine():
     keys = [
-        "AIzaSyCPl8pCcUQxK_q2f7B80jluNTeLsexnjhE",
+        "AIzaSyBshLLsQMeRq2ZKmqg92Ym6UcDrZwhz_ZI",
         "AIzaSyA-gnMmgKg_0k4BpnvJ7K252Y5lRnfY7Sk",
         "AIzaSyCnfi7_J3xMzfxBqn8-S8lPeLrbxruXb8g"
     ]
@@ -214,3 +214,4 @@ if img_file:
 # تذييل
 st.markdown("---")
 st.caption("نظام فرز الخردة الإلكترونية v5.2 | تشخيص محسّن | مدعوم بـ Gemini")
+
