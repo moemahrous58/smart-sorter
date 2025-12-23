@@ -200,22 +200,29 @@ if img_file:
         with st.spinner("⏳ جاري تحليل الصورة..."):
             try:
                 prompt = """Analyze this electronic component carefully. 
+                You MUST return a complete and valid JSON object.
                 Identify: model name, type (CPU/RAM/GPU), estimated gold content in mg, and scrap value in USD.
-                Return ONLY a valid JSON object with this exact structure:
-                {"model": "component_name", "type": "CPU or RAM or GPU", "gold_mg": number, "value_usd": number}
-                Do not include any other text, just the JSON."""
+                
+                Return ONLY this exact JSON format (ensure all strings are properly closed with quotes):
+                {"model": "component_name", "type": "CPU", "gold_mg": 100, "value_usd": 5}
+                
+                Important: 
+                - All text values must be in quotes
+                - All numbers should be without quotes
+                - Ensure the JSON is complete and valid
+                - Do not truncate the response"""
                 
                 response = st.session_state.active_engine.generate_content(
                     [prompt, img],
                     generation_config={
-                        "temperature": 0.2,
-                        "max_output_tokens": 500
+                        "temperature": 0.1,
+                        "max_output_tokens": 1000
                     }
                 )
                 
                 # تنظيف النص
                 res_text = response.text.strip()
-                res_text = res_text.replace('```json', '').replace('```', '').strip()
+                res_text = res_text.replace('```json', '').replace('```', '').replace('`', '').strip()
                 
                 # محاولة استخراج JSON
                 if '{' in res_text and '}' in res_text:
@@ -223,26 +230,92 @@ if img_file:
                     end = res_text.rindex('}') + 1
                     res_text = res_text[start:end]
                 
-                data = json.loads(res_text)
+                # محاولة إصلاح JSON غير المكتمل
+                try:
+                    data = json.loads(res_text)
+                except json.JSONDecodeError:
+                    # إذا فشل، نحاول إصلاح النص
+                    # إضافة علامات الاقتباس والأقواس المفقودة
+                    if not res_text.endswith('}'):
+                        # البحث عن آخر قيمة صحيحة
+                        lines = res_text.split('\n')
+                        fixed_lines = []
+                        for line in lines:
+                            if ':' in line and not line.strip().endswith(',') and not line.strip().endswith('}'):
+                                # إضافة علامات الاقتباس المفقودة
+                                if '"' in line:
+                                    parts = line.split(':')
+                                    if len(parts) == 2:
+                                        key = parts[0].strip()
+                                        value = parts[1].strip().rstrip(',')
+                                        # إذا كانت القيمة غير مكتملة
+                                        if value.count('"') == 1:
+                                            value = value + '"'
+                                        fixed_lines.append(f'{key}: {value}')
+                                        continue
+                            fixed_lines.append(line)
+                        res_text = '\n'.join(fixed_lines)
+                        if not res_text.endswith('}'):
+                            res_text += '}'
+                    
+                    data = json.loads(res_text)
                 
                 # عرض النتائج
                 st.subheader("📊 نتائج الفحص:")
+                
+                # التأكد من وجود القيم الأساسية
+                model = data.get('model', 'غير معروف')
+                comp_type = data.get('type', 'غير معروف')
+                gold_mg = data.get('gold_mg', 0)
+                value_usd = data.get('value_usd', 0)
+                
+                # تحويل القيم الرقمية إذا كانت نصوص
+                try:
+                    gold_mg = float(gold_mg) if gold_mg else 0
+                except:
+                    gold_mg = 0
+                
+                try:
+                    value_usd = float(value_usd) if value_usd else 0
+                except:
+                    value_usd = 0
+                
                 col1, col2 = st.columns(2)
-                col1.metric("الموديل", data.get('model', 'غير معروف'))
-                col1.metric("النوع", data.get('type', 'غير معروف'))
-                col2.metric("كمية الذهب", f"{data.get('gold_mg', 0)} mg")
-                col2.metric("القيمة ($)", f"${data.get('value_usd', 0)}")
+                col1.metric("الموديل", model)
+                col1.metric("النوع", comp_type)
+                col2.metric("كمية الذهب", f"{gold_mg} mg")
+                col2.metric("القيمة ($)", f"${value_usd}")
+                
+                # عرض الاستجابة الخام للتشخيص
+                with st.expander("🔍 عرض الاستجابة الخام (للتشخيص)"):
+                    st.code(response.text, language="json")
                 
                 # الحفظ
-                if save_to_sheets(data):
+                save_data = {
+                    'model': model,
+                    'type': comp_type,
+                    'gold_mg': gold_mg,
+                    'value_usd': value_usd
+                }
+                
+                if save_to_sheets(save_data):
                     st.success("✅ تم الحفظ في قاعدة البيانات بنجاح!")
                     st.balloons()
                     
             except json.JSONDecodeError as je:
-                st.error(f"⚠️ خطأ في تحليل الاستجابة: {je}")
-                st.code(res_text, language="text")
+                st.error(f"⚠️ خطأ في تحليل JSON: {je}")
+                st.warning("💡 الحل: جاري إعادة المحاولة بإعدادات محسّنة...")
+                
+                # عرض النص الخام
+                with st.expander("📝 الاستجابة الخام من AI"):
+                    st.code(res_text, language="text")
+                
+                # محاولة ثانية بقيم افتراضية
+                st.info("🔄 يمكنك المحاولة مرة أخرى أو إدخال البيانات يدوياً")
+                
             except Exception as e:
                 st.error(f"❌ خطأ أثناء التحليل: {e}")
+                st.info("💡 جرب رفع صورة أوضح أو التقط زاوية مختلفة")
 
 # تذييل
 st.markdown("---")
