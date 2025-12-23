@@ -75,8 +75,13 @@ def save_to_sheets(data):
                 pk = str(google_info["private_key"])
                 st.info(f"طول المفتاح: {len(pk)} حرف")
                 st.info(f"يبدأ بـ: {pk[:20]}...")
-                st.info(f"يحتوي على \\n: {'نعم' if '\\n' in pk else 'لا'}")
-                st.info(f"يحتوي على فواصل أسطر: {'نعم' if chr(10) in pk else 'لا'}")
+                # إصلاح: نستخدم متغير منفصل بدلاً من backslash في f-string
+                backslash_n = "\\n"
+                newline = "\n"
+                has_backslash_n = backslash_n in pk
+                has_newline = newline in pk
+                st.info(f"يحتوي على \\n: {'نعم' if has_backslash_n else 'لا'}")
+                st.info(f"يحتوي على فواصل أسطر: {'نعم' if has_newline else 'لا'}")
             except:
                 pass
             
