@@ -24,8 +24,24 @@ def save_to_sheets(data):
         private_key = private_key.strip()
         
         # التأكد من أن المفتاح في الشكل الصحيح
+        # إذا كان يحتوي على \n كنص (escaped)، نحوله لفواصل أسطر حقيقية
         if "\\n" in private_key:
             private_key = private_key.replace("\\n", "\n")
+        
+        # إذا كان المفتاح بدون فواصل أسطر أصلاً، نضيفها
+        if "-----BEGIN PRIVATE KEY-----" in private_key and "\n" not in private_key:
+            # تقسيم المفتاح وإعادة تشكيله
+            private_key = private_key.replace("-----BEGIN PRIVATE KEY-----", "-----BEGIN PRIVATE KEY-----\n")
+            private_key = private_key.replace("-----END PRIVATE KEY-----", "\n-----END PRIVATE KEY-----")
+            # تقسيم النص الطويل إلى أسطر 64 حرف
+            lines = private_key.split("\n")
+            formatted_lines = [lines[0]]  # BEGIN line
+            middle_text = lines[1].replace("\n", "").replace("\r", "")
+            for i in range(0, len(middle_text), 64):
+                formatted_lines.append(middle_text[i:i+64])
+            if len(lines) > 2:
+                formatted_lines.append(lines[-1])  # END line
+            private_key = "\n".join(formatted_lines)
         
         creds_dict = {
             "type": str(google_info["type"]),
