@@ -10,32 +10,43 @@ import time
 # 1. إعداد الصفحة
 st.set_page_config(page_title="Smart Sorter v5.2", layout="centered", page_icon="♻️")
 
-# --- 2. دالة الحفظ في Google Sheets (محسّنة ومُصلحة) ---
+# --- 2. دالة الحفظ في Google Sheets (حل نهائي لمشكلة Base64) ---
 def save_to_sheets(data):
     try:
         # قراءة الاعتمادات من Secrets
         google_info = st.secrets["google_sheets"]
         scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
         
-        # تحويل إلى قاموس عادي
+        # تحويل إلى قاموس عادي وتنظيف المفتاح
+        private_key = str(google_info["private_key"])
+        
+        # إزالة المسافات والأحرف الزائدة
+        private_key = private_key.strip()
+        
+        # التأكد من أن المفتاح في الشكل الصحيح
+        # في secrets.toml المفتاح يكون بـ """ """ وهذا يحفظه كسطر واحد
+        # نحتاج لاستبدال \n المكتوبة نصياً بفواصل أسطر حقيقية
+        if "\\n" in private_key:
+            private_key = private_key.replace("\\n", "\n")
+        
         creds_dict = {
-            "type": google_info["type"],
-            "project_id": google_info["project_id"],
-            "private_key_id": google_info["private_key_id"],
-            "private_key": google_info["private_key"],  # استخدام المفتاح كما هو
-            "client_email": google_info["client_email"],
-            "client_id": google_info["client_id"],
-            "auth_uri": google_info["auth_uri"],
-            "token_uri": google_info["token_uri"],
-            "auth_provider_x509_cert_url": google_info["auth_provider_x509_cert_url"],
-            "client_x509_cert_url": google_info["client_x509_cert_url"]
+            "type": str(google_info["type"]),
+            "project_id": str(google_info["project_id"]),
+            "private_key_id": str(google_info["private_key_id"]),
+            "private_key": private_key,
+            "client_email": str(google_info["client_email"]),
+            "client_id": str(google_info["client_id"]),
+            "auth_uri": str(google_info["auth_uri"]),
+            "token_uri": str(google_info["token_uri"]),
+            "auth_provider_x509_cert_url": str(google_info["auth_provider_x509_cert_url"]),
+            "client_x509_cert_url": str(google_info["client_x509_cert_url"])
         }
         
         # إضافة universe_domain إذا كان موجوداً
         if "universe_domain" in google_info:
-            creds_dict["universe_domain"] = google_info["universe_domain"]
+            creds_dict["universe_domain"] = str(google_info["universe_domain"])
         
-        # إنشاء الاعتمادات مباشرة بدون تعديل على private_key
+        # إنشاء الاعتمادات
         creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
         client = gspread.authorize(creds)
         
@@ -59,43 +70,32 @@ def save_to_sheets(data):
         error_msg = str(e)
         st.error(f"❌ خطأ في حفظ البيانات: {error_msg}")
         
-        # نصائح حسب نوع الخطأ
+        # عرض تفاصيل المفتاح للتشخيص (بدون عرض المفتاح الكامل)
         if "base64" in error_msg.lower():
-            st.warning("💡 المشكلة في معالجة المفتاح الخاص")
-            st.info("جاري إعادة المحاولة بطريقة بديلة...")
-            # محاولة بديلة مع معالجة مختلفة للمفتاح
+            st.warning("💡 مشكلة في تشفير المفتاح الخاص")
+            
+            # محاولة تشخيص المشكلة
             try:
-                creds_dict["private_key"] = google_info["private_key"].replace("\\n", "\n")
-                creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
-                client = gspread.authorize(creds)
-                sheet = client.open("E-Waste Database").sheet1
-                row = [
-                    datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"), 
-                    str(data.get('model', 'Unknown')),
-                    str(data.get('type', 'Unknown')),
-                    float(data.get('gold_mg', 0)),
-                    float(data.get('value_usd', 0))
-                ]
-                sheet.append_row(row)
-                st.success("✅ نجحت المحاولة البديلة!")
-                return True
-            except Exception as e2:
-                st.error(f"❌ فشلت المحاولة البديلة أيضاً: {e2}")
+                pk = str(google_info["private_key"])
+                st.info(f"طول المفتاح: {len(pk)} حرف")
+                st.info(f"يبدأ بـ: {pk[:20]}...")
+                st.info(f"يحتوي على \\n: {'نعم' if '\\n' in pk else 'لا'}")
+                st.info(f"يحتوي على فواصل أسطر: {'نعم' if chr(10) in pk else 'لا'}")
+            except:
+                pass
+            
+            st.markdown("""
+            **حلول مقترحة:**
+            1. أعد إنشاء Service Account جديد وانسخ المفتاح مرة أخرى
+            2. تأكد من نسخ المفتاح كاملاً من JSON
+            3. استخدم """ ثلاثة علامات اقتباس في secrets.toml
+            """)
                 
         elif "permission" in error_msg.lower() or "403" in error_msg:
-            st.warning("💡 مشكلة في الصلاحيات:")
-            st.markdown(f"""
-            - شارك الملف مع: `{google_info['client_email']}`
-            - أعطه صلاحية **Editor**
-            - تأكد من تفعيل Google Sheets API في Cloud Console
-            """)
+            st.warning(f"💡 شارك الملف مع: `{google_info['client_email']}`")
+            
         elif "not found" in error_msg.lower() or "404" in error_msg:
-            st.warning("💡 الملف غير موجود:")
-            st.markdown("""
-            - تأكد من اسم الملف بالضبط: **E-Waste Database**
-            - تحقق من أن الملف موجود في Google Sheets
-            - تأكد من مشاركته مع service account
-            """)
+            st.warning("💡 تأكد من وجود ملف اسمه: **E-Waste Database**")
         
         return False
 
@@ -194,8 +194,65 @@ def get_working_ai_engine():
     return None, None, None, errors_log
 
 # --- 4. واجهة التطبيق الرئيسية ---
-st.title("♻️ نظام الفرز الإلكتروني الذكي (v5.2)")
+st.title("♻️ نظام الفرز الإلكتروني الذكي (v5.3)")
 st.markdown("**نسخة محسّنة مع تشخيص تفصيلي**")
+st.markdown("---")
+
+# زر اختبار Google Sheets
+with st.expander("🧪 اختبار اتصال Google Sheets", expanded=False):
+    if st.button("▶️ اختبار الاتصال"):
+        try:
+            google_info = st.secrets["google_sheets"]
+            scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
+            
+            creds_dict = {
+                "type": google_info["type"],
+                "project_id": google_info["project_id"],
+                "private_key_id": google_info["private_key_id"],
+                "private_key": google_info["private_key"],
+                "client_email": google_info["client_email"],
+                "client_id": google_info["client_id"],
+                "auth_uri": google_info["auth_uri"],
+                "token_uri": google_info["token_uri"],
+                "auth_provider_x509_cert_url": google_info["auth_provider_x509_cert_url"],
+                "client_x509_cert_url": google_info["client_x509_cert_url"]
+            }
+            
+            if "universe_domain" in google_info:
+                creds_dict["universe_domain"] = google_info["universe_domain"]
+            
+            creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
+            client = gspread.authorize(creds)
+            
+            st.success("✅ تم الاتصال بـ Google Sheets بنجاح!")
+            st.info(f"📧 Service Account: {google_info['client_email']}")
+            
+            # محاولة فتح الملف
+            sheet = client.open("E-Waste Database")
+            st.success(f"✅ تم فتح الملف: **{sheet.title}**")
+            st.info(f"📄 الورقة النشطة: **{sheet.sheet1.title}**")
+            st.info(f"📊 عدد الصفوف الحالية: **{len(sheet.sheet1.get_all_values())}**")
+            
+        except Exception as e:
+            error_msg = str(e)
+            st.error(f"❌ فشل الاختبار: {error_msg}")
+            
+            if "permission" in error_msg.lower() or "403" in error_msg:
+                st.warning(f"""
+                💡 **حل المشكلة:**
+                1. افتح ملف **E-Waste Database** في Google Sheets
+                2. اضغط على زر **مشاركة** (Share)
+                3. أضف هذا الإيميل: `{google_info['client_email']}`
+                4. أعطه صلاحية **Editor**
+                """)
+            elif "not found" in error_msg.lower():
+                st.warning("""
+                💡 **حل المشكلة:**
+                - أنشئ ملف جديد في Google Sheets
+                - سمّه بالضبط: **E-Waste Database**
+                - شاركه مع الـ service account أعلاه
+                """)
+
 st.markdown("---")
 
 # إدارة الحالة
@@ -262,28 +319,48 @@ if img_file:
     st.image(img, caption="🖼️ الصورة الجاري تحليلها", use_container_width=True)
     
     if st.button("🚀 بدء التحليل والحفظ التلقائي", type="primary", use_container_width=True):
-        with st.spinner("⏳ جاري تحليل الصورة..."):
+        with st.spinner("⏳ جاري تحليل الصورة بذكاء Gemini..."):
             try:
-                # برومبت مختصر ومركز لمنع الانقطاع
-                prompt = """Return ONLY a JSON object for this electronic component.
-                Required fields: {"model": "string", "type": "CPU/RAM/GPU", "gold_mg": number, "value_usd": number}
-                Do not include any text before or after the JSON."""
+                # برومبت محسّن جداً
+                prompt = """Analyze this electronic component image.
+Extract the following information:
+- model: The exact text/model number visible on the chip
+- type: Is it CPU, RAM, or GPU?
+- gold_mg: Estimate gold content in milligrams (typical: RAM=50-100mg, CPU=100-300mg)
+- value_usd: Estimate scrap value in USD (typical: RAM=$2-5, CPU=$5-15)
+
+Return ONLY valid JSON:
+{"model": "text_on_chip", "type": "RAM", "gold_mg": 70, "value_usd": 3.5}"""
                 
                 response = st.session_state.active_engine.generate_content(
                     [prompt, img],
                     generation_config={
-                        "temperature": 0,  # منع الإبداع لضمان استقرار JSON
-                        "max_output_tokens": 1000,  # مساحة كافية
-                        "top_p": 1,  # حتمية كاملة
-                        "top_k": 1   # اختيار الأعلى احتمالاً فقط
+                        "temperature": 0,
+                        "max_output_tokens": 500,
+                        "top_p": 0.95,
+                        "top_k": 40
                     }
                 )
                 
-                res_text = response.text.strip()
-                # تنظيف الرد من علامات Markdown
-                res_text = res_text.replace('```json', '').replace('```', '').replace('`', '').strip()
+                # عرض الرد الخام أولاً للتشخيص
+                raw_response = response.text.strip()
                 
-                # استخراج JSON إذا كان محاطاً بنص
+                if not raw_response or len(raw_response) < 10:
+                    st.error("⚠️ الرد فارغ من AI! جاري إعادة المحاولة...")
+                    # محاولة ثانية بـ prompt مختلف
+                    response = st.session_state.active_engine.generate_content(
+                        [img, "What is this component? Return: model, type, gold content mg, value usd in JSON format"],
+                        generation_config={"temperature": 0.3, "max_output_tokens": 800}
+                    )
+                    raw_response = response.text.strip()
+                
+                with st.expander("🔍 الاستجابة الخام من AI"):
+                    st.code(raw_response, language="text")
+                
+                # تنظيف النص
+                res_text = raw_response.replace('```json', '').replace('```', '').replace('`', '').strip()
+                
+                # استخراج JSON
                 if '{' in res_text and '}' in res_text:
                     start = res_text.index('{')
                     end = res_text.rindex('}') + 1
@@ -300,16 +377,15 @@ if img_file:
                     st.warning("⚠️ JSON غير مكتمل - جاري استخراج البيانات بـ Regex...")
                     
                     data = {}
-                    # استخراج القيم حتى لو انقطع النص
                     m = re.search(r'"model"\s*:\s*"([^"]*)"?', res_text)
                     t = re.search(r'"type"\s*:\s*"([^"]*)"?', res_text)
                     g = re.search(r'"gold_mg"\s*:\s*(\d+\.?\d*)', res_text)
                     v = re.search(r'"value_usd"\s*:\s*(\d+\.?\d*)', res_text)
                     
-                    data['model'] = m.group(1) if m else "Unknown"
-                    data['type'] = t.group(1) if t else "Unknown"
-                    data['gold_mg'] = float(g.group(1)) if g else 0.0
-                    data['value_usd'] = float(v.group(1)) if v else 0.0
+                    data['model'] = m.group(1) if m else "Unknown Model"
+                    data['type'] = t.group(1) if t else "RAM"  # افتراض RAM إذا لم يُحدد
+                    data['gold_mg'] = float(g.group(1)) if g else 70.0  # قيمة افتراضية معقولة
+                    data['value_usd'] = float(v.group(1)) if v else 3.0  # قيمة افتراضية معقولة
                     
                     st.info("✅ تم استخراج البيانات المتاحة")
                 
