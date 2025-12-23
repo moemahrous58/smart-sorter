@@ -37,9 +37,9 @@ def save_to_sheets(data):
 # --- 3. محرك التبادل المحسّن مع تشخيص تفصيلي ---
 def get_working_ai_engine():
     keys = [
-        "AIzaSyBshLLsQMeRq2ZKmqg92Ym6UcDrZwhz_ZI",
-        "AIzaSyA-gnMmgKg_0k4BpnvJ7K252Y5lRnfY7Sk",
-        "AIzaSyCnfi7_J3xMzfxBqn8-S8lPeLrbxruXb8g"
+        "AIzaSyBshLLsQMeRq2ZKmqg92Ym6UcDrZwhz_ZI",  # المفتاح الجديد
+        "AIzaSyCPl8pCcUQxK_q2f7B80jluNTeLsexnjhE",
+        "AIzaSyA-gnMmgKg_0k4BpnvJ7K252Y5lRnfY7Sk"
     ]
     
     # موديلات متعددة للتجربة
@@ -50,20 +50,27 @@ def get_working_ai_engine():
         'gemini-1.5-pro'
     ]
     
-    errors_log = []
+    errors_log = ["بدء فحص المفاتيح..."]
     
     for i, key in enumerate(keys):
+        errors_log.append(f"🔍 فحص المفتاح {i+1}...")
+        
         if not key or len(key) < 30:
-            errors_log.append(f"🔴 المفتاح {i+1}: غير صالح أو فارغ")
+            errors_log.append(f"🔴 المفتاح {i+1}: غير صالح أو فارغ (طول: {len(key) if key else 0})")
             continue
         
+        errors_log.append(f"   طول المفتاح: {len(key)} حرف ✓")
+        
         for m_name in model_names:
+            errors_log.append(f"   جاري تجربة الموديل: {m_name}...")
             try:
                 # إعداد المفتاح
                 genai.configure(api_key=key)
+                errors_log.append(f"      ✓ تم إعداد المفتاح")
                 
                 # إنشاء الموديل
                 model = genai.GenerativeModel(m_name)
+                errors_log.append(f"      ✓ تم إنشاء كائن الموديل")
                 
                 # اختبار بسيط جدًا
                 response = model.generate_content(
@@ -75,26 +82,32 @@ def get_working_ai_engine():
                 )
                 
                 # إذا وصلنا هنا، فالاتصال نجح!
-                errors_log.append(f"✅ المفتاح {i+1} + الموديل {m_name}: نجح!")
+                errors_log.append(f"      ✅✅✅ نجح الاتصال! الرد: {response.text[:30]}")
                 return model, m_name, i+1, errors_log
                 
             except Exception as e:
                 error_msg = str(e)
+                full_error = f"      ❌ فشل: {error_msg}"
+                errors_log.append(full_error)
+                
                 # تحليل نوع الخطأ
                 if "429" in error_msg or "quota" in error_msg.lower():
-                    errors_log.append(f"⚠️ المفتاح {i+1} + {m_name}: تجاوز الحد المسموح (Quota)")
-                elif "403" in error_msg or "permission" in error_msg.lower():
-                    errors_log.append(f"⚠️ المفتاح {i+1} + {m_name}: المفتاح غير مفعّل أو الـ API معطل")
+                    errors_log.append(f"      📊 التشخيص: تجاوز الحد المسموح (Quota)")
+                elif "403" in error_msg or "permission" in error_msg.lower() or "disabled" in error_msg.lower():
+                    errors_log.append(f"      🔒 التشخيص: API غير مفعّل أو الصلاحيات غير كافية")
                 elif "404" in error_msg:
-                    errors_log.append(f"⚠️ المفتاح {i+1} + {m_name}: الموديل غير موجود")
+                    errors_log.append(f"      🔍 التشخيص: الموديل غير موجود أو غير متاح")
                 elif "invalid" in error_msg.lower() or "401" in error_msg:
-                    errors_log.append(f"🔴 المفتاح {i+1} + {m_name}: المفتاح غير صحيح")
+                    errors_log.append(f"      🔑 التشخيص: المفتاح غير صحيح")
+                elif "DEADLINE_EXCEEDED" in error_msg or "timeout" in error_msg.lower():
+                    errors_log.append(f"      ⏱️ التشخيص: انتهت مهلة الاتصال")
                 else:
-                    errors_log.append(f"❌ المفتاح {i+1} + {m_name}: {error_msg[:100]}")
+                    errors_log.append(f"      ❓ التشخيص: خطأ غير معروف")
                 
-                time.sleep(0.5)  # تأخير بسيط بين المحاولات
+                time.sleep(0.5)
                 continue
     
+    errors_log.append("❌ انتهى الفحص - فشلت جميع المحاولات")
     return None, None, None, errors_log
 
 # --- 4. واجهة التطبيق الرئيسية ---
@@ -112,17 +125,19 @@ if 'active_engine' not in st.session_state:
         st.session_state.connection_logs = logs
 
 # عرض سجل الاتصال
-with st.expander("📋 عرض سجل محاولات الاتصال (للتشخيص)", expanded=False):
-    if 'connection_logs' in st.session_state:
+with st.expander("📋 عرض سجل محاولات الاتصال (للتشخيص)", expanded=True):
+    if 'connection_logs' in st.session_state and st.session_state.connection_logs:
         for log in st.session_state.connection_logs:
             if "✅" in log:
                 st.success(log)
-            elif "🔴" in log:
+            elif "🔴" in log or "❌" in log:
                 st.error(log)
-            elif "⚠️" in log:
+            elif "⚠️" in log or "📊" in log or "🔒" in log or "🔍" in log or "🔑" in log or "⏱️" in log or "❓" in log:
                 st.warning(log)
             else:
                 st.info(log)
+    else:
+        st.warning("⚠️ لا توجد سجلات - هذا يعني أن الفحص لم يتم بشكل صحيح")
 
 # عرض حالة الاتصال
 if st.session_state.active_engine:
@@ -214,4 +229,3 @@ if img_file:
 # تذييل
 st.markdown("---")
 st.caption("نظام فرز الخردة الإلكترونية v5.2 | تشخيص محسّن | مدعوم بـ Gemini")
-
