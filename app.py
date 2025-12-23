@@ -326,11 +326,11 @@ if img_file:
 Extract the following information:
 - model: The exact text/model number visible on the chip
 - type: Is it CPU, RAM, or GPU?
-- gold_mg: Estimate gold content in milligrams (typical: RAM=50-100 mg, CPU=100-300 mg)
-- value_usd: Estimate scrap value in USD (typical: RAM=$2-5, CPU=$5-15)
+- gold_mg: Estimate gold content in milligrams (typical: RAM 50-100 mg, CPU 100-300 mg)
+- value_usd: Estimate scrap value in USD (typical: RAM 2-5 dollars, CPU 5-15 dollars)
 
-Return ONLY valid JSON:
-{"model": "text_on_chip", "type": "RAM", "gold_mg": 70, "value_usd": 3.5}"""
+Return ONLY valid JSON format with these exact keys:
+model, type, gold_mg, value_usd"""
                 
                 response = st.session_state.active_engine.generate_content(
                     [prompt, img],
