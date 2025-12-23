@@ -8,7 +8,7 @@ import json
 import time
 
 # 1. إعداد الصفحة
-st.set_page_config(page_title="Smart Sorter v5.2", layout="centered", page_icon="♻️")
+st.set_page_config(page_title="Smart Sorter v5.3", layout="centered", page_icon="♻️")
 
 # --- 2. دالة الحفظ في Google Sheets (حل نهائي لمشكلة Base64) ---
 def save_to_sheets(data):
@@ -24,8 +24,6 @@ def save_to_sheets(data):
         private_key = private_key.strip()
         
         # التأكد من أن المفتاح في الشكل الصحيح
-        # في secrets.toml المفتاح يكون بـ """ """ وهذا يحفظه كسطر واحد
-        # نحتاج لاستبدال \n المكتوبة نصياً بفواصل أسطر حقيقية
         if "\\n" in private_key:
             private_key = private_key.replace("\\n", "\n")
         
@@ -42,7 +40,6 @@ def save_to_sheets(data):
             "client_x509_cert_url": str(google_info["client_x509_cert_url"])
         }
         
-        # إضافة universe_domain إذا كان موجوداً
         if "universe_domain" in google_info:
             creds_dict["universe_domain"] = str(google_info["universe_domain"])
         
@@ -70,11 +67,10 @@ def save_to_sheets(data):
         error_msg = str(e)
         st.error(f"❌ خطأ في حفظ البيانات: {error_msg}")
         
-        # عرض تفاصيل المفتاح للتشخيص (بدون عرض المفتاح الكامل)
+        # عرض تفاصيل المفتاح للتشخيص
         if "base64" in error_msg.lower():
             st.warning("💡 مشكلة في تشفير المفتاح الخاص")
             
-            # محاولة تشخيص المشكلة
             try:
                 pk = str(google_info["private_key"])
                 st.info(f"طول المفتاح: {len(pk)} حرف")
@@ -88,7 +84,7 @@ def save_to_sheets(data):
             **حلول مقترحة:**
             1. أعد إنشاء Service Account جديد وانسخ المفتاح مرة أخرى
             2. تأكد من نسخ المفتاح كاملاً من JSON
-            3. استخدم """ ثلاثة علامات اقتباس في secrets.toml
+            3. استخدم علامات اقتباس عادية في secrets.toml
             """)
                 
         elif "permission" in error_msg.lower() or "403" in error_msg:
@@ -102,12 +98,11 @@ def save_to_sheets(data):
 # --- 3. محرك التبادل المحسّن مع تشخيص تفصيلي ---
 def get_working_ai_engine():
     keys = [
-        "AIzaSyBshLLsQMeRq2ZKmqg92Ym6UcDrZwhz_ZI",  # المفتاح الجديد
+        "AIzaSyBshLLsQMeRq2ZKmqg92Ym6UcDrZwhz_ZI",
         "AIzaSyCPl8pCcUQxK_q2f7B80jluNTeLsexnjhE",
         "AIzaSyA-gnMmgKg_0k4BpnvJ7K252Y5lRnfY7Sk"
     ]
     
-    # أسماء الموديلات الصحيحة (بدون البادئة models/)
     model_names = [
         'gemini-1.5-flash-latest',
         'gemini-1.5-pro-latest',
@@ -127,7 +122,7 @@ def get_working_ai_engine():
         
         errors_log.append(f"   طول المفتاح: {len(key)} حرف ✓")
         
-        # أولاً: محاولة سرد الموديلات المتاحة
+        # محاولة سرد الموديلات المتاحة
         try:
             genai.configure(api_key=key)
             available_models = genai.list_models()
@@ -151,7 +146,7 @@ def get_working_ai_engine():
         except Exception as list_error:
             errors_log.append(f"   ⚠️ فشل سرد الموديلات: {str(list_error)[:100]}")
         
-        # ثانياً: تجربة الموديلات من القائمة
+        # تجربة الموديلات من القائمة
         for m_name in model_names:
             errors_log.append(f"   جاري تجربة الموديل: {m_name}...")
             try:
@@ -321,16 +316,8 @@ if img_file:
     if st.button("🚀 بدء التحليل والحفظ التلقائي", type="primary", use_container_width=True):
         with st.spinner("⏳ جاري تحليل الصورة بذكاء Gemini..."):
             try:
-                # برومبت محسّن جداً
-                prompt = """Analyze this electronic component image.
-Extract the following information:
-- model: The exact text/model number visible on the chip
-- type: Is it CPU, RAM, or GPU?
-- gold_mg: Estimate gold content in milligrams (typical: RAM 50-100 mg, CPU 100-300 mg)
-- value_usd: Estimate scrap value in USD (typical: RAM 2-5 dollars, CPU 5-15 dollars)
-
-Return ONLY valid JSON format with these exact keys:
-model, type, gold_mg, value_usd"""
+                # برومبت محسّن
+                prompt = "Analyze this electronic component. Return JSON with: model, type (CPU/RAM/GPU), gold_mg (estimated gold in milligrams), value_usd (scrap value in USD)"
                 
                 response = st.session_state.active_engine.generate_content(
                     [prompt, img],
@@ -342,12 +329,11 @@ model, type, gold_mg, value_usd"""
                     }
                 )
                 
-                # عرض الرد الخام أولاً للتشخيص
+                # عرض الرد الخام أولاً
                 raw_response = response.text.strip()
                 
                 if not raw_response or len(raw_response) < 10:
                     st.error("⚠️ الرد فارغ من AI! جاري إعادة المحاولة...")
-                    # محاولة ثانية بـ prompt مختلف
                     response = st.session_state.active_engine.generate_content(
                         [img, "What is this component? Return: model, type, gold content mg, value usd in JSON format"],
                         generation_config={"temperature": 0.3, "max_output_tokens": 800}
@@ -383,9 +369,9 @@ model, type, gold_mg, value_usd"""
                     v = re.search(r'"value_usd"\s*:\s*(\d+\.?\d*)', res_text)
                     
                     data['model'] = m.group(1) if m else "Unknown Model"
-                    data['type'] = t.group(1) if t else "RAM"  # افتراض RAM إذا لم يُحدد
-                    data['gold_mg'] = float(g.group(1)) if g else 70.0  # قيمة افتراضية معقولة
-                    data['value_usd'] = float(v.group(1)) if v else 3.0  # قيمة افتراضية معقولة
+                    data['type'] = t.group(1) if t else "RAM"
+                    data['gold_mg'] = float(g.group(1)) if g else 70.0
+                    data['value_usd'] = float(v.group(1)) if v else 3.0
                     
                     st.info("✅ تم استخراج البيانات المتاحة")
                 
@@ -402,10 +388,6 @@ model, type, gold_mg, value_usd"""
                 col1.metric("🔹 النوع", data['type'])
                 col2.metric("🔸 كمية الذهب", f"{data['gold_mg']} mg")
                 col2.metric("🔸 القيمة التقديرية", f"${data['value_usd']}")
-                
-                # عرض الرد الخام للتشخيص
-                with st.expander("🔍 عرض الاستجابة الخام (للتشخيص)"):
-                    st.code(response.text, language="json")
                 
                 # الحفظ التلقائي
                 if save_to_sheets(data):
