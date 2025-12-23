@@ -326,7 +326,7 @@ if img_file:
 Extract the following information:
 - model: The exact text/model number visible on the chip
 - type: Is it CPU, RAM, or GPU?
-- gold_mg: Estimate gold content in milligrams (typical: RAM=50-100mg, CPU=100-300mg)
+- gold_mg: Estimate gold content in milligrams (typical: RAM=50-100 mg, CPU=100-300 mg)
 - value_usd: Estimate scrap value in USD (typical: RAM=$2-5, CPU=$5-15)
 
 Return ONLY valid JSON:
